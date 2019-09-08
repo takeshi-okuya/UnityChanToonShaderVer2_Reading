@@ -7,6 +7,32 @@
     return normalDirection;
 }
 
+float clipping(float2 Set_UV0, float4 _MainTex_var)
+{
+    //v.2.0.4
+#ifdef _IS_CLIPPING_MODE
+//DoubleShadeWithFeather_Clipping
+    float4 _ClippingMask_var = tex2D(_ClippingMask, TRANSFORM_TEX(Set_UV0, _ClippingMask));
+    float Set_Clipping = saturate((lerp(_ClippingMask_var.r, (1.0 - _ClippingMask_var.r), _Inverse_Clipping) + _Clipping_Level));
+    clip(Set_Clipping - 0.5);
+
+    return 0;
+#elif _IS_CLIPPING_TRANSMODE
+//DoubleShadeWithFeather_TransClipping
+    float4 _ClippingMask_var = tex2D(_ClippingMask, TRANSFORM_TEX(Set_UV0, _ClippingMask));
+    float Set_MainTexAlpha = _MainTex_var.a;
+    float _IsBaseMapAlphaAsClippingMask_var = lerp(_ClippingMask_var.r, Set_MainTexAlpha, _IsBaseMapAlphaAsClippingMask);
+    float _Inverse_Clipping_var = lerp(_IsBaseMapAlphaAsClippingMask_var, (1.0 - _IsBaseMapAlphaAsClippingMask_var), _Inverse_Clipping);
+    float Set_Clipping = saturate((_Inverse_Clipping_var + _Clipping_Level));
+    clip(Set_Clipping - 0.5);
+
+    return _Inverse_Clipping_var;
+#elif _IS_CLIPPING_OFF
+//DoubleShadeWithFeather
+    return 0;
+#endif
+}
+
 float4 frag(VertexOutput i, fixed facing : VFACE) : SV_TARGET {
     i.normalDir = normalize(i.normalDir);
     float3x3 tangentTransform = float3x3( i.tangentDir, i.bitangentDir, i.normalDir);
@@ -15,25 +41,8 @@ float4 frag(VertexOutput i, fixed facing : VFACE) : SV_TARGET {
 
     float3 normalDirection = compNormalDirection(Set_UV0, tangentTransform);
     float4 _MainTex_var = tex2D(_MainTex,TRANSFORM_TEX(Set_UV0, _MainTex));
-//v.2.0.4
-#ifdef _IS_CLIPPING_MODE
-//DoubleShadeWithFeather_Clipping
-    float4 _ClippingMask_var = tex2D(_ClippingMask,TRANSFORM_TEX(Set_UV0, _ClippingMask));
-    float Set_Clipping = saturate((lerp( _ClippingMask_var.r, (1.0 - _ClippingMask_var.r), _Inverse_Clipping )+_Clipping_Level));
-    clip(Set_Clipping - 0.5);
-#elif _IS_CLIPPING_TRANSMODE
-//DoubleShadeWithFeather_TransClipping
-    float4 _ClippingMask_var = tex2D(_ClippingMask,TRANSFORM_TEX(Set_UV0, _ClippingMask));
-    float Set_MainTexAlpha = _MainTex_var.a;
-    float _IsBaseMapAlphaAsClippingMask_var = lerp( _ClippingMask_var.r, Set_MainTexAlpha, _IsBaseMapAlphaAsClippingMask );
-    float _Inverse_Clipping_var = lerp( _IsBaseMapAlphaAsClippingMask_var, (1.0 - _IsBaseMapAlphaAsClippingMask_var), _Inverse_Clipping );
-    float Set_Clipping = saturate((_Inverse_Clipping_var+_Clipping_Level));
-    clip(Set_Clipping - 0.5);
 
-#elif _IS_CLIPPING_OFF
-//DoubleShadeWithFeather
-#endif
-
+    float _Inverse_Clipping_var = clipping(Set_UV0, _MainTex_var);
     UNITY_LIGHT_ATTENUATION(attenuation, i, i.posWorld.xyz);
 
 //v.2.0.4
