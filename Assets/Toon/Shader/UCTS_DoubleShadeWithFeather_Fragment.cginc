@@ -1,13 +1,19 @@
-﻿float4 frag(VertexOutput i, fixed facing : VFACE) : SV_TARGET {
+﻿float3 compNormalDirection(float2 Set_UV0, float3x3 tangentTransform) {
+    //v.2.0.6
+    //float3 _NormalMap_var = UnpackNormal(tex2D(_NormalMap,TRANSFORM_TEX(Set_UV0, _NormalMap)));
+    float3 _NormalMap_var = UnpackScaleNormal(tex2D(_NormalMap, TRANSFORM_TEX(Set_UV0, _NormalMap)), _BumpScale);
+    float3 normalLocal = _NormalMap_var.rgb;
+    float3 normalDirection = normalize(mul(normalLocal, tangentTransform)); // Perturbed normals
+    return normalDirection;
+}
+
+float4 frag(VertexOutput i, fixed facing : VFACE) : SV_TARGET {
     i.normalDir = normalize(i.normalDir);
     float3x3 tangentTransform = float3x3( i.tangentDir, i.bitangentDir, i.normalDir);
     float3 viewDirection = normalize(_WorldSpaceCameraPos.xyz - i.posWorld.xyz);
     float2 Set_UV0 = i.uv0;
-    //v.2.0.6
-    //float3 _NormalMap_var = UnpackNormal(tex2D(_NormalMap,TRANSFORM_TEX(Set_UV0, _NormalMap)));
-    float3 _NormalMap_var = UnpackScaleNormal(tex2D(_NormalMap,TRANSFORM_TEX(Set_UV0, _NormalMap)), _BumpScale);
-    float3 normalLocal = _NormalMap_var.rgb;
-    float3 normalDirection = normalize(mul( normalLocal, tangentTransform )); // Perturbed normals
+
+    float3 normalDirection = compNormalDirection(Set_UV0, tangentTransform);
     float4 _MainTex_var = tex2D(_MainTex,TRANSFORM_TEX(Set_UV0, _MainTex));
 //v.2.0.4
 #ifdef _IS_CLIPPING_MODE
@@ -236,20 +242,20 @@
 #ifdef _IS_CLIPPING_OFF
 //DoubleShadeWithFeather
 #ifdef _IS_PASS_FWDBASE
-	    fixed4 finalRGBA = fixed4(finalColor,1);
+        fixed4 finalRGBA = fixed4(finalColor,1);
 #elif _IS_PASS_FWDDELTA
-	    fixed4 finalRGBA = fixed4(finalColor,0);
+        fixed4 finalRGBA = fixed4(finalColor,0);
 #endif
 #elif _IS_CLIPPING_MODE
 //DoubleShadeWithFeather_Clipping
 #ifdef _IS_PASS_FWDBASE
-	    fixed4 finalRGBA = fixed4(finalColor,1);
+        fixed4 finalRGBA = fixed4(finalColor,1);
 #elif _IS_PASS_FWDDELTA
-	    fixed4 finalRGBA = fixed4(finalColor,0);
+        fixed4 finalRGBA = fixed4(finalColor,0);
 #endif
 #elif _IS_CLIPPING_TRANSMODE
 //DoubleShadeWithFeather_TransClipping
-    	float Set_Opacity = saturate((_Inverse_Clipping_var+_Tweak_transparency));
+        float Set_Opacity = saturate((_Inverse_Clipping_var+_Tweak_transparency));
 #ifdef _IS_PASS_FWDBASE
         fixed4 finalRGBA = fixed4(finalColor,Set_Opacity);
 #elif _IS_PASS_FWDDELTA
