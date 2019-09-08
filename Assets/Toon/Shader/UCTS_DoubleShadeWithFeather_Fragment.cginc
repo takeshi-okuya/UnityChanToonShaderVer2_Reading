@@ -33,6 +33,41 @@ float clipping(float2 Set_UV0, float4 _MainTex_var)
 #endif
 }
 
+float3 compLightDirection(VertexOutput i)
+{
+    //v.2.0.4
+#ifdef _IS_PASS_FWDBASE
+
+    float3 defaultLightDirection = normalize(UNITY_MATRIX_V[2].xyz + UNITY_MATRIX_V[1].xyz);
+    //v.2.0.5
+    float3 customLightDirection = normalize(mul(unity_ObjectToWorld, float4(((float3(1.0, 0.0, 0.0)*_Offset_X_Axis_BLD * 10) + (float3(0.0, 1.0, 0.0)*_Offset_Y_Axis_BLD * 10) + (float3(0.0, 0.0, -1.0)*lerp(-1.0, 1.0, _Inverse_Z_Axis_BLD))), 0)).xyz);
+    float3 lightDirection = normalize(lerp(defaultLightDirection, _WorldSpaceLightPos0.xyz, any(_WorldSpaceLightPos0.xyz)));
+    lightDirection = lerp(lightDirection, customLightDirection, _Is_BLD);
+#elif _IS_PASS_FWDDELTA
+    float3 lightDirection = normalize(lerp(_WorldSpaceLightPos0.xyz, _WorldSpaceLightPos0.xyz - i.posWorld.xyz, _WorldSpaceLightPos0.w));
+#endif
+
+    return lightDirection;
+}
+
+float3 compLightColor(VertexOutput i, float3 lightDirection, float3 normalDirection, float attenuation)
+{
+    //v.2.0.4
+#ifdef _IS_PASS_FWDBASE
+    //v.2.0.5
+    float3 defaultLightColor = saturate(max(half3(0.05, 0.05, 0.05)*_Unlit_Intensity, max(ShadeSH9(half4(0.0, 0.0, 0.0, 1.0)), ShadeSH9(half4(0.0, -1.0, 0.0, 1.0)).rgb)*_Unlit_Intensity));
+    //v.2.0.5: 
+    float3 lightColor = lerp(max(defaultLightColor, _LightColor0.rgb), max(defaultLightColor, saturate(_LightColor0.rgb)), _Is_Filter_LightColor);
+#elif _IS_PASS_FWDDELTA
+    //v.2.0.5: 
+    float3 addPassLightColor = (0.5*dot(lerp(i.normalDir, normalDirection, _Is_NormalMapToBase), lightDirection) + 0.5) * _LightColor0.rgb * attenuation;
+    float pureIntencity = max(0.001, (0.299*_LightColor0.r + 0.587*_LightColor0.g + 0.114*_LightColor0.b));
+    float3 lightColor = max(0, lerp(addPassLightColor, lerp(0, min(addPassLightColor, addPassLightColor / pureIntencity), _WorldSpaceLightPos0.w), _Is_Filter_LightColor));
+#endif
+
+    return lightColor;
+}
+
 float4 frag(VertexOutput i, fixed facing : VFACE) : SV_TARGET {
     i.normalDir = normalize(i.normalDir);
     float3x3 tangentTransform = float3x3( i.tangentDir, i.bitangentDir, i.normalDir);
@@ -45,24 +80,8 @@ float4 frag(VertexOutput i, fixed facing : VFACE) : SV_TARGET {
     float _Inverse_Clipping_var = clipping(Set_UV0, _MainTex_var);
     UNITY_LIGHT_ATTENUATION(attenuation, i, i.posWorld.xyz);
 
-//v.2.0.4
-#ifdef _IS_PASS_FWDBASE
-
-    float3 defaultLightDirection = normalize(UNITY_MATRIX_V[2].xyz + UNITY_MATRIX_V[1].xyz);
-    //v.2.0.5
-    float3 defaultLightColor = saturate(max(half3(0.05,0.05,0.05)*_Unlit_Intensity,max(ShadeSH9(half4(0.0, 0.0, 0.0, 1.0)),ShadeSH9(half4(0.0, -1.0, 0.0, 1.0)).rgb)*_Unlit_Intensity));
-    float3 customLightDirection = normalize(mul( unity_ObjectToWorld, float4(((float3(1.0,0.0,0.0)*_Offset_X_Axis_BLD*10)+(float3(0.0,1.0,0.0)*_Offset_Y_Axis_BLD*10)+(float3(0.0,0.0,-1.0)*lerp(-1.0,1.0,_Inverse_Z_Axis_BLD))),0)).xyz);
-    float3 lightDirection = normalize(lerp(defaultLightDirection,_WorldSpaceLightPos0.xyz,any(_WorldSpaceLightPos0.xyz)));
-    lightDirection = lerp(lightDirection, customLightDirection, _Is_BLD);
-    //v.2.0.5: 
-    float3 lightColor = lerp(max(defaultLightColor,_LightColor0.rgb),max(defaultLightColor,saturate(_LightColor0.rgb)),_Is_Filter_LightColor);
-#elif _IS_PASS_FWDDELTA
-    float3 lightDirection = normalize(lerp(_WorldSpaceLightPos0.xyz, _WorldSpaceLightPos0.xyz - i.posWorld.xyz,_WorldSpaceLightPos0.w));
-    //v.2.0.5: 
-    float3 addPassLightColor = (0.5*dot(lerp( i.normalDir, normalDirection, _Is_NormalMapToBase ), lightDirection)+0.5) * _LightColor0.rgb * attenuation;
-    float pureIntencity = max(0.001,(0.299*_LightColor0.r + 0.587*_LightColor0.g + 0.114*_LightColor0.b));
-    float3 lightColor = max(0, lerp(addPassLightColor, lerp(0,min(addPassLightColor,addPassLightColor/pureIntencity),_WorldSpaceLightPos0.w),_Is_Filter_LightColor));
-#endif
+    float3 lightDirection = compLightDirection(i);
+    float3 lightColor = compLightColor(i, lightDirection, normalDirection, attenuation);
 ////// Lighting:
     float3 halfDirection = normalize(viewDirection+lightDirection);
     //v.2.0.5
