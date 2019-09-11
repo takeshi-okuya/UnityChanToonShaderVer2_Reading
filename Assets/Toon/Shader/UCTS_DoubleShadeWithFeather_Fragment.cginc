@@ -73,17 +73,29 @@ float3 compBaseColor(
     float3 Set_LightColor, float _HalfLambert_var, float4 _Set_1st_ShadePosition_var,
     float _SystemShadowsLevel_var, float Set_FinalShadowMask)
 {
-    float3 Set_BaseColor = lerp((_BaseColor.rgb*_MainTex_var.rgb), ((_BaseColor.rgb*_MainTex_var.rgb)*Set_LightColor), _Is_LightColor_Base);
+    float3 Set_BaseColor = _BaseColor.rgb * _MainTex_var.rgb;
+    Set_BaseColor = lerp(Set_BaseColor, Set_BaseColor * Set_LightColor, _Is_LightColor_Base);
+
     //v.2.0.5
-    float4 _1st_ShadeMap_var = lerp(tex2D(_1st_ShadeMap, TRANSFORM_TEX(Set_UV0, _1st_ShadeMap)), _MainTex_var, _Use_BaseAs1st);
-    float3 Set_1st_ShadeColor = lerp((_1st_ShadeColor.rgb*_1st_ShadeMap_var.rgb), ((_1st_ShadeColor.rgb*_1st_ShadeMap_var.rgb)*Set_LightColor), _Is_LightColor_1st_Shade);
+    float4 _1st_ShadeMap_var = tex2D(_1st_ShadeMap, TRANSFORM_TEX(Set_UV0, _1st_ShadeMap));
+    _1st_ShadeMap_var = lerp(_1st_ShadeMap_var, _MainTex_var, _Use_BaseAs1st);
+    float3 Set_1st_ShadeColor = _1st_ShadeColor.rgb*_1st_ShadeMap_var.rgb;
+    Set_1st_ShadeColor = lerp(Set_1st_ShadeColor, Set_1st_ShadeColor*Set_LightColor, _Is_LightColor_1st_Shade);
+
     //v.2.0.5
-    float4 _2nd_ShadeMap_var = lerp(tex2D(_2nd_ShadeMap, TRANSFORM_TEX(Set_UV0, _2nd_ShadeMap)), _1st_ShadeMap_var, _Use_1stAs2nd);
-    float3 Set_2nd_ShadeColor = lerp((_2nd_ShadeColor.rgb*_2nd_ShadeMap_var.rgb), ((_2nd_ShadeColor.rgb*_2nd_ShadeMap_var.rgb)*Set_LightColor), _Is_LightColor_2nd_Shade);
+    float4 _2nd_ShadeMap_var = tex2D(_2nd_ShadeMap, TRANSFORM_TEX(Set_UV0, _2nd_ShadeMap));
+    _2nd_ShadeMap_var = lerp(_2nd_ShadeMap_var, _1st_ShadeMap_var, _Use_1stAs2nd);
+    float3 Set_2nd_ShadeColor = _2nd_ShadeColor.rgb*_2nd_ShadeMap_var.rgb;
+    Set_2nd_ShadeColor = lerp(Set_2nd_ShadeColor, Set_2nd_ShadeColor*Set_LightColor, _Is_LightColor_2nd_Shade);
+
     float4 _Set_2nd_ShadePosition_var = tex2D(_Set_2nd_ShadePosition, TRANSFORM_TEX(Set_UV0, _Set_2nd_ShadePosition));
 
     //Composition: 3 Basic Colors as Set_FinalBaseColor
-    float3 Set_FinalBaseColor = lerp(Set_BaseColor, lerp(Set_1st_ShadeColor, Set_2nd_ShadeColor, saturate((1.0 + ((_HalfLambert_var - (_ShadeColor_Step - _1st2nd_Shades_Feather)) * ((1.0 - _Set_2nd_ShadePosition_var.rgb).r - 1.0)) / (_ShadeColor_Step - (_ShadeColor_Step - _1st2nd_Shades_Feather))))), Set_FinalShadowMask); // Final Color
+    float shadeStepSub = _ShadeColor_Step - _1st2nd_Shades_Feather;
+    float ratio = 1.0 + (_HalfLambert_var - shadeStepSub) * (-_Set_2nd_ShadePosition_var.r) / _1st2nd_Shades_Feather;
+    ratio = saturate(ratio);
+    float3 Set_1st2nd_ShadeColor = lerp(Set_1st_ShadeColor, Set_2nd_ShadeColor, ratio);
+    float3 Set_FinalBaseColor = lerp(Set_BaseColor, Set_1st2nd_ShadeColor, Set_FinalShadowMask); // Final Color
 
     return Set_FinalBaseColor;
 }
