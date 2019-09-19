@@ -292,7 +292,8 @@ float3 compForwardBase(
     compEmissive(i, viewDirection, normalDirection, Set_UV0, cameraParam);
 
     //Final Composition
-    finalColor =  saturate(finalColor) + (envLightColor*envLightIntensity*_GI_Intensity*smoothstep(1, 0, envLightIntensity / 2)) + emissive;
+    float3 envLight = envLightColor * envLightIntensity*_GI_Intensity*smoothstep(1, 0, envLightIntensity / 2);
+    finalColor =  saturate(finalColor) + envLight + emissive;
 
     return finalColor;
 }
