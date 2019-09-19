@@ -133,6 +133,87 @@ float3 compRimLight(
     return Set_RimLight;
 }
 
+struct CameraParam
+{
+    fixed _sign_Mirror;
+    float3 _Camera_Right;
+    float _Camera_Roll;
+    fixed _Camera_Dir;
+};
+
+CameraParam compCameraParam(VertexOutput i)
+{
+    //v.2.0.6 : CameraRolling Stabilizer
+    //鏡スクリプト判定：_sign_Mirror = -1 なら、鏡の中と判定.
+    //v.2.0.7
+    fixed _sign_Mirror = i.mirrorFlag;
+    //
+    float3 _Camera_Right = UNITY_MATRIX_V[0].xyz;
+    float3 _Camera_Front = UNITY_MATRIX_V[2].xyz;
+    float3 _Up_Unit = float3(0, 1, 0);
+    float3 _Right_Axis = cross(_Camera_Front, _Up_Unit);
+    //鏡の中なら反転.
+    if(_sign_Mirror < 0){
+        _Right_Axis = -1 * _Right_Axis;
+        _Rotate_MatCapUV = -1 * _Rotate_MatCapUV;
+    }else{
+        _Right_Axis = _Right_Axis;
+    }
+    float _Camera_Right_Magnitude = sqrt(_Camera_Right.x*_Camera_Right.x + _Camera_Right.y*_Camera_Right.y + _Camera_Right.z*_Camera_Right.z);
+    float _Right_Axis_Magnitude = sqrt(_Right_Axis.x*_Right_Axis.x + _Right_Axis.y*_Right_Axis.y + _Right_Axis.z*_Right_Axis.z);
+    float _Camera_Roll_Cos = dot(_Right_Axis, _Camera_Right) / (_Right_Axis_Magnitude * _Camera_Right_Magnitude);
+    float _Camera_Roll = acos(clamp(_Camera_Roll_Cos, -1, 1));
+    fixed _Camera_Dir = _Camera_Right.y < 0 ? -1 : 1;
+
+    CameraParam dst = { _sign_Mirror, _Camera_Right, _Camera_Roll, _Camera_Dir };
+    return dst;
+}
+
+float3 compMatCap(
+    VertexOutput i, float3x3 tangentTransform, float3 viewDirection, float2 Set_UV0,
+    float3 Set_LightColor, float Set_FinalShadowMask, float3 Set_HighColor, float3 Set_RimLight, float3 _RimLight_var,
+    CameraParam cameraParam)
+{
+    float _Rot_MatCapUV_var_ang = (_Rotate_MatCapUV*3.141592654) - cameraParam._Camera_Dir * cameraParam._Camera_Roll*_CameraRolling_Stabilizer;
+    //v.2.0.7
+    float2 _Rot_MatCapNmUV_var = RotateUV(Set_UV0, (_Rotate_NormalMapForMatCapUV*3.141592654), float2(0.5, 0.5), 1.0);
+    //V.2.0.6
+    float3 _NormalMapForMatCap_var = UnpackScaleNormal(tex2D(_NormalMapForMatCap, TRANSFORM_TEX(_Rot_MatCapNmUV_var, _NormalMapForMatCap)), _BumpScaleMatcap);
+    //v.2.0.5: MatCap with camera skew correction
+    float3 viewNormal = (mul(UNITY_MATRIX_V, float4(lerp(i.normalDir, mul(_NormalMapForMatCap_var.rgb, tangentTransform).rgb, _Is_NormalMapForMatCap), 0))).rgb;
+    float3 NormalBlend_MatcapUV_Detail = viewNormal.rgb * float3(-1, -1, 1);
+    float3 NormalBlend_MatcapUV_Base = (mul(UNITY_MATRIX_V, float4(viewDirection, 0)).rgb*float3(-1, -1, 1)) + float3(0, 0, 1);
+    float3 noSknewViewNormal = NormalBlend_MatcapUV_Base * dot(NormalBlend_MatcapUV_Base, NormalBlend_MatcapUV_Detail) / NormalBlend_MatcapUV_Base.b - NormalBlend_MatcapUV_Detail;
+    float2 _ViewNormalAsMatCapUV = (lerp(noSknewViewNormal, viewNormal, _Is_Ortho).rg*0.5) + 0.5;
+    //v.2.0.7
+    float2 _Rot_MatCapUV_var = RotateUV((0.0 + ((_ViewNormalAsMatCapUV - (0.0 + _Tweak_MatCapUV)) * (1.0 - 0.0)) / ((1.0 - _Tweak_MatCapUV) - (0.0 + _Tweak_MatCapUV))), _Rot_MatCapUV_var_ang, float2(0.5, 0.5), 1.0);
+    //鏡の中ならUV左右反転.
+    if(cameraParam._sign_Mirror < 0){
+        _Rot_MatCapUV_var.x = 1 - _Rot_MatCapUV_var.x;
+    }else{
+        _Rot_MatCapUV_var = _Rot_MatCapUV_var;
+    }
+    //v.2.0.6 : LOD of Matcap
+    float4 _MatCap_Sampler_var = tex2Dlod(_MatCap_Sampler, float4(TRANSFORM_TEX(_Rot_MatCapUV_var, _MatCap_Sampler), 0.0, _BlurLevelMatcap));
+    //
+    //MatcapMask
+    float4 _Set_MatcapMask_var = tex2D(_Set_MatcapMask, TRANSFORM_TEX(Set_UV0, _Set_MatcapMask));
+    float _Tweak_MatcapMaskLevel_var = saturate(lerp(_Set_MatcapMask_var.g, (1.0 - _Set_MatcapMask_var.g), _Inverse_MatcapMask) + _Tweak_MatcapMaskLevel);
+    //
+    float3 _Is_LightColor_MatCap_var = lerp((_MatCap_Sampler_var.rgb*_MatCapColor.rgb), ((_MatCap_Sampler_var.rgb*_MatCapColor.rgb)*Set_LightColor), _Is_LightColor_MatCap);
+    //v.2.0.6 : ShadowMask on Matcap in Blend mode : multiply
+    float3 Set_MatCap = lerp(_Is_LightColor_MatCap_var, (_Is_LightColor_MatCap_var*((1.0 - Set_FinalShadowMask) + (Set_FinalShadowMask*_TweakMatCapOnShadow)) + lerp(Set_HighColor*Set_FinalShadowMask*(1.0 - _TweakMatCapOnShadow), float3(0.0, 0.0, 0.0), _Is_BlendAddToMatCap)), _Is_UseTweakMatCapOnShadow);
+    //
+    //Composition: RimLight and MatCap as finalColor
+    //Broke down finalColor composition
+    float3 matCapColorOnAddMode = _RimLight_var + Set_MatCap * _Tweak_MatcapMaskLevel_var;
+    float _Tweak_MatcapMaskLevel_var_MultiplyMode = _Tweak_MatcapMaskLevel_var * lerp(1.0, (1.0 - (Set_FinalShadowMask)*(1.0 - _TweakMatCapOnShadow)), _Is_UseTweakMatCapOnShadow);
+    float3 matCapColorOnMultiplyMode = Set_HighColor * (1 - _Tweak_MatcapMaskLevel_var_MultiplyMode) + Set_HighColor * Set_MatCap*_Tweak_MatcapMaskLevel_var_MultiplyMode + lerp(float3(0, 0, 0), Set_RimLight, _RimLight);
+    float3 matCapColorFinal = lerp(matCapColorOnMultiplyMode, matCapColorOnAddMode, _Is_BlendAddToMatCap);
+
+    return matCapColorFinal;
+}
+
 float3 compForwardBase(
     VertexOutput i, float3x3 tangentTransform, float3 viewDirection, float3 normalDirection,
     float3 lightColor, float3 lightDirection, float3 halfDirection,
@@ -158,64 +239,9 @@ float3 compForwardBase(
     //Composition: HighColor and RimLight as _RimLight_var
     float3 _RimLight_var = lerp(Set_HighColor, (Set_HighColor + Set_RimLight), _RimLight);
 
-    //Matcap
-    //v.2.0.6 : CameraRolling Stabilizer
-    //鏡スクリプト判定：_sign_Mirror = -1 なら、鏡の中と判定.
-    //v.2.0.7
-    fixed _sign_Mirror = i.mirrorFlag;
-    //
-    float3 _Camera_Right = UNITY_MATRIX_V[0].xyz;
-    float3 _Camera_Front = UNITY_MATRIX_V[2].xyz;
-    float3 _Up_Unit = float3(0, 1, 0);
-    float3 _Right_Axis = cross(_Camera_Front, _Up_Unit);
-    //鏡の中なら反転.
-    if(_sign_Mirror < 0){
-        _Right_Axis = -1 * _Right_Axis;
-        _Rotate_MatCapUV = -1 * _Rotate_MatCapUV;
-    }else{
-        _Right_Axis = _Right_Axis;
-    }
-    float _Camera_Right_Magnitude = sqrt(_Camera_Right.x*_Camera_Right.x + _Camera_Right.y*_Camera_Right.y + _Camera_Right.z*_Camera_Right.z);
-    float _Right_Axis_Magnitude = sqrt(_Right_Axis.x*_Right_Axis.x + _Right_Axis.y*_Right_Axis.y + _Right_Axis.z*_Right_Axis.z);
-    float _Camera_Roll_Cos = dot(_Right_Axis, _Camera_Right) / (_Right_Axis_Magnitude * _Camera_Right_Magnitude);
-    float _Camera_Roll = acos(clamp(_Camera_Roll_Cos, -1, 1));
-    fixed _Camera_Dir = _Camera_Right.y < 0 ? -1 : 1;
-    float _Rot_MatCapUV_var_ang = (_Rotate_MatCapUV*3.141592654) - _Camera_Dir * _Camera_Roll*_CameraRolling_Stabilizer;
-    //v.2.0.7
-    float2 _Rot_MatCapNmUV_var = RotateUV(Set_UV0, (_Rotate_NormalMapForMatCapUV*3.141592654), float2(0.5, 0.5), 1.0);
-    //V.2.0.6
-    float3 _NormalMapForMatCap_var = UnpackScaleNormal(tex2D(_NormalMapForMatCap, TRANSFORM_TEX(_Rot_MatCapNmUV_var, _NormalMapForMatCap)), _BumpScaleMatcap);
-    //v.2.0.5: MatCap with camera skew correction
-    float3 viewNormal = (mul(UNITY_MATRIX_V, float4(lerp(i.normalDir, mul(_NormalMapForMatCap_var.rgb, tangentTransform).rgb, _Is_NormalMapForMatCap), 0))).rgb;
-    float3 NormalBlend_MatcapUV_Detail = viewNormal.rgb * float3(-1, -1, 1);
-    float3 NormalBlend_MatcapUV_Base = (mul(UNITY_MATRIX_V, float4(viewDirection, 0)).rgb*float3(-1, -1, 1)) + float3(0, 0, 1);
-    float3 noSknewViewNormal = NormalBlend_MatcapUV_Base * dot(NormalBlend_MatcapUV_Base, NormalBlend_MatcapUV_Detail) / NormalBlend_MatcapUV_Base.b - NormalBlend_MatcapUV_Detail;
-    float2 _ViewNormalAsMatCapUV = (lerp(noSknewViewNormal, viewNormal, _Is_Ortho).rg*0.5) + 0.5;
-    //v.2.0.7
-    float2 _Rot_MatCapUV_var = RotateUV((0.0 + ((_ViewNormalAsMatCapUV - (0.0 + _Tweak_MatCapUV)) * (1.0 - 0.0)) / ((1.0 - _Tweak_MatCapUV) - (0.0 + _Tweak_MatCapUV))), _Rot_MatCapUV_var_ang, float2(0.5, 0.5), 1.0);
-    //鏡の中ならUV左右反転.
-    if(_sign_Mirror < 0){
-        _Rot_MatCapUV_var.x = 1 - _Rot_MatCapUV_var.x;
-    }else{
-        _Rot_MatCapUV_var = _Rot_MatCapUV_var;
-    }
-    //v.2.0.6 : LOD of Matcap
-    float4 _MatCap_Sampler_var = tex2Dlod(_MatCap_Sampler, float4(TRANSFORM_TEX(_Rot_MatCapUV_var, _MatCap_Sampler), 0.0, _BlurLevelMatcap));
-    //
-    //MatcapMask
-    float4 _Set_MatcapMask_var = tex2D(_Set_MatcapMask, TRANSFORM_TEX(Set_UV0, _Set_MatcapMask));
-    float _Tweak_MatcapMaskLevel_var = saturate(lerp(_Set_MatcapMask_var.g, (1.0 - _Set_MatcapMask_var.g), _Inverse_MatcapMask) + _Tweak_MatcapMaskLevel);
-    //
-    float3 _Is_LightColor_MatCap_var = lerp((_MatCap_Sampler_var.rgb*_MatCapColor.rgb), ((_MatCap_Sampler_var.rgb*_MatCapColor.rgb)*Set_LightColor), _Is_LightColor_MatCap);
-    //v.2.0.6 : ShadowMask on Matcap in Blend mode : multiply
-    float3 Set_MatCap = lerp(_Is_LightColor_MatCap_var, (_Is_LightColor_MatCap_var*((1.0 - Set_FinalShadowMask) + (Set_FinalShadowMask*_TweakMatCapOnShadow)) + lerp(Set_HighColor*Set_FinalShadowMask*(1.0 - _TweakMatCapOnShadow), float3(0.0, 0.0, 0.0), _Is_BlendAddToMatCap)), _Is_UseTweakMatCapOnShadow);
-    //
-    //Composition: RimLight and MatCap as finalColor
-    //Broke down finalColor composition
-    float3 matCapColorOnAddMode = _RimLight_var + Set_MatCap * _Tweak_MatcapMaskLevel_var;
-    float _Tweak_MatcapMaskLevel_var_MultiplyMode = _Tweak_MatcapMaskLevel_var * lerp(1.0, (1.0 - (Set_FinalShadowMask)*(1.0 - _TweakMatCapOnShadow)), _Is_UseTweakMatCapOnShadow);
-    float3 matCapColorOnMultiplyMode = Set_HighColor * (1 - _Tweak_MatcapMaskLevel_var_MultiplyMode) + Set_HighColor * Set_MatCap*_Tweak_MatcapMaskLevel_var_MultiplyMode + lerp(float3(0, 0, 0), Set_RimLight, _RimLight);
-    float3 matCapColorFinal = lerp(matCapColorOnMultiplyMode, matCapColorOnAddMode, _Is_BlendAddToMatCap);
+    CameraParam cameraParam = compCameraParam(i);
+    float3 matCapColorFinal = compMatCap(i, tangentTransform, viewDirection, Set_UV0,
+        Set_LightColor, Set_FinalShadowMask, Set_HighColor, Set_RimLight, _RimLight_var, cameraParam);
     float3 finalColor = lerp(_RimLight_var, matCapColorFinal, _MatCap);// Final Composition before Emissive
     //
     //v.2.0.6: GI_Intensity with Intensity Multiplier Filter
@@ -233,9 +259,9 @@ float3 compForwardBase(
     float3 NormalBlend_Emissive_Base = (mul(UNITY_MATRIX_V, float4(viewDirection, 0)).xyz*float3(-1, -1, 1)) + float3(0, 0, 1);
     float3 noSknewViewNormal_Emissive = NormalBlend_Emissive_Base * dot(NormalBlend_Emissive_Base, NormalBlend_Emissive_Detail) / NormalBlend_Emissive_Base.z - NormalBlend_Emissive_Detail;
     float2 _ViewNormalAsEmissiveUV = noSknewViewNormal_Emissive.xy*0.5 + 0.5;
-    float2 _ViewCoord_UV = RotateUV(_ViewNormalAsEmissiveUV, -(_Camera_Dir*_Camera_Roll), float2(0.5, 0.5), 1.0);
+    float2 _ViewCoord_UV = RotateUV(_ViewNormalAsEmissiveUV, -(cameraParam._Camera_Dir*cameraParam._Camera_Roll), float2(0.5, 0.5), 1.0);
     //鏡の中ならUV左右反転.
-    if (_sign_Mirror < 0) {
+    if (cameraParam._sign_Mirror < 0) {
         _ViewCoord_UV.x = 1 - _ViewCoord_UV.x;
     }else{
         _ViewCoord_UV = _ViewCoord_UV;
