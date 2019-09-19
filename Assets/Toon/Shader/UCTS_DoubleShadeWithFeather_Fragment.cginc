@@ -111,7 +111,14 @@ float3 compHighColor(
     float3 _HighColor_var = (lerp((_HighColor_Tex_var.rgb*_HighColor.rgb), ((_HighColor_Tex_var.rgb*_HighColor.rgb)*Set_LightColor), _Is_LightColor_HighColor)*_TweakHighColorMask_var);
 
     //Composition: 3 Basic Colors and HighColor as Set_HighColor
-    float3 Set_HighColor = (lerp(saturate((Set_FinalBaseColor - _TweakHighColorMask_var)), Set_FinalBaseColor, lerp(_Is_BlendAddToHiColor, 1.0, _Is_SpecularToHighColor)) + lerp(_HighColor_var, (_HighColor_var*((1.0 - Set_FinalShadowMask) + (Set_FinalShadowMask*_TweakHighColorOnShadow))), _Is_UseTweakHighColorOnShadow));
+    float3 maskedBase = saturate(Set_FinalBaseColor - _TweakHighColorMask_var);
+    fixed baseRate = lerp(_Is_BlendAddToHiColor, 1.0, _Is_SpecularToHighColor);
+    float3 base = lerp(maskedBase, Set_FinalBaseColor, baseRate);
+
+    float3 maskedHigh = _HighColor_var*((1.0 - Set_FinalShadowMask) + (Set_FinalShadowMask*_TweakHighColorOnShadow));
+    float3 high = lerp(_HighColor_var, maskedHigh, _Is_UseTweakHighColorOnShadow);
+
+    float3 Set_HighColor = base + high;
 
     return Set_HighColor;
 }
