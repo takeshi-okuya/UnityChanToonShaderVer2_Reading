@@ -214,39 +214,8 @@ float3 compMatCap(
     return matCapColorFinal;
 }
 
-float3 compForwardBase(
-    VertexOutput i, float3x3 tangentTransform, float3 viewDirection, float3 normalDirection,
-    float3 lightColor, float3 lightDirection, float3 halfDirection,
-    float4 _MainTex_var, float2 Set_UV0, float attenuation)
+void compEmissive(VertexOutput i, float3 viewDirection, float3 normalDirection, float2 Set_UV0, CameraParam cameraParam)
 {
-    float3 Set_LightColor = lightColor.rgb;
-    float _HalfLambert_var = 0.5*dot(lerp(i.normalDir, normalDirection, _Is_NormalMapToBase), lightDirection) + 0.5;
-    float4 _Set_1st_ShadePosition_var = tex2D(_Set_1st_ShadePosition, TRANSFORM_TEX(Set_UV0, _Set_1st_ShadePosition));
-    //v.2.0.6
-    //Minmimum value is same as the Minimum Feather's value with the Minimum Step's value as threshold.
-    float _SystemShadowsLevel_var = (attenuation*0.5) + 0.5 + _Tweak_SystemShadowsLevel > 0.001 ? (attenuation*0.5) + 0.5 + _Tweak_SystemShadowsLevel : 0.0001;
-    float Set_FinalShadowMask = saturate((1.0 + ((lerp(_HalfLambert_var, _HalfLambert_var*saturate(_SystemShadowsLevel_var), _Set_SystemShadowsToBase) - (_BaseColor_Step - _BaseShade_Feather)) * ((1.0 - _Set_1st_ShadePosition_var.rgb).r - 1.0)) / (_BaseColor_Step - (_BaseColor_Step - _BaseShade_Feather))));
-
-    float3 Set_FinalBaseColor = compBaseColor(
-        _MainTex_var, Set_UV0,
-        Set_LightColor, _HalfLambert_var, _Set_1st_ShadePosition_var,
-        _SystemShadowsLevel_var, Set_FinalShadowMask);
-
-    float3 Set_HighColor = compHighColor(i, Set_UV0, normalDirection, halfDirection,
-        Set_LightColor, Set_FinalBaseColor, Set_FinalShadowMask);
-
-    float3 Set_RimLight = compRimLight(i, Set_UV0, Set_LightColor, viewDirection, normalDirection, lightDirection);
-    //Composition: HighColor and RimLight as _RimLight_var
-    float3 _RimLight_var = lerp(Set_HighColor, (Set_HighColor + Set_RimLight), _RimLight);
-
-    CameraParam cameraParam = compCameraParam(i);
-    float3 matCapColorFinal = compMatCap(i, tangentTransform, viewDirection, Set_UV0,
-        Set_LightColor, Set_FinalShadowMask, Set_HighColor, Set_RimLight, _RimLight_var, cameraParam);
-    float3 finalColor = lerp(_RimLight_var, matCapColorFinal, _MatCap);// Final Composition before Emissive
-    //
-    //v.2.0.6: GI_Intensity with Intensity Multiplier Filter
-    float3 envLightColor = DecodeLightProbe(normalDirection) < float3(1, 1, 1) ? DecodeLightProbe(normalDirection) : float3(1, 1, 1);
-    float envLightIntensity = 0.299*envLightColor.r + 0.587*envLightColor.g + 0.114*envLightColor.b < 1 ? (0.299*envLightColor.r + 0.587*envLightColor.g + 0.114*envLightColor.b) : 1;
 //v.2.0.7
 #ifdef _EMISSIVE_SIMPLE
     float4 _Emissive_Tex_var = tex2D(_Emissive_Tex, TRANSFORM_TEX(Set_UV0, _Emissive_Tex));
@@ -284,7 +253,44 @@ float3 compForwardBase(
     float4 emissive_Color = lerp(colorShift_Color, viewShift_Color, _Is_ViewShift);
     emissive = emissive_Color.rgb * _Emissive_Tex_var.rgb * emissiveMask;
 #endif
-//
+}
+
+float3 compForwardBase(
+    VertexOutput i, float3x3 tangentTransform, float3 viewDirection, float3 normalDirection,
+    float3 lightColor, float3 lightDirection, float3 halfDirection,
+    float4 _MainTex_var, float2 Set_UV0, float attenuation)
+{
+    float3 Set_LightColor = lightColor.rgb;
+    float _HalfLambert_var = 0.5*dot(lerp(i.normalDir, normalDirection, _Is_NormalMapToBase), lightDirection) + 0.5;
+    float4 _Set_1st_ShadePosition_var = tex2D(_Set_1st_ShadePosition, TRANSFORM_TEX(Set_UV0, _Set_1st_ShadePosition));
+    //v.2.0.6
+    //Minmimum value is same as the Minimum Feather's value with the Minimum Step's value as threshold.
+    float _SystemShadowsLevel_var = (attenuation*0.5) + 0.5 + _Tweak_SystemShadowsLevel > 0.001 ? (attenuation*0.5) + 0.5 + _Tweak_SystemShadowsLevel : 0.0001;
+    float Set_FinalShadowMask = saturate((1.0 + ((lerp(_HalfLambert_var, _HalfLambert_var*saturate(_SystemShadowsLevel_var), _Set_SystemShadowsToBase) - (_BaseColor_Step - _BaseShade_Feather)) * ((1.0 - _Set_1st_ShadePosition_var.rgb).r - 1.0)) / (_BaseColor_Step - (_BaseColor_Step - _BaseShade_Feather))));
+
+    float3 Set_FinalBaseColor = compBaseColor(
+        _MainTex_var, Set_UV0,
+        Set_LightColor, _HalfLambert_var, _Set_1st_ShadePosition_var,
+        _SystemShadowsLevel_var, Set_FinalShadowMask);
+
+    float3 Set_HighColor = compHighColor(i, Set_UV0, normalDirection, halfDirection,
+        Set_LightColor, Set_FinalBaseColor, Set_FinalShadowMask);
+
+    float3 Set_RimLight = compRimLight(i, Set_UV0, Set_LightColor, viewDirection, normalDirection, lightDirection);
+    //Composition: HighColor and RimLight as _RimLight_var
+    float3 _RimLight_var = lerp(Set_HighColor, (Set_HighColor + Set_RimLight), _RimLight);
+
+    CameraParam cameraParam = compCameraParam(i);
+    float3 matCapColorFinal = compMatCap(i, tangentTransform, viewDirection, Set_UV0,
+        Set_LightColor, Set_FinalShadowMask, Set_HighColor, Set_RimLight, _RimLight_var, cameraParam);
+    float3 finalColor = lerp(_RimLight_var, matCapColorFinal, _MatCap);// Final Composition before Emissive
+
+    //v.2.0.6: GI_Intensity with Intensity Multiplier Filter
+    float3 envLightColor = DecodeLightProbe(normalDirection) < float3(1, 1, 1) ? DecodeLightProbe(normalDirection) : float3(1, 1, 1);
+    float envLightIntensity = 0.299*envLightColor.r + 0.587*envLightColor.g + 0.114*envLightColor.b < 1 ? (0.299*envLightColor.r + 0.587*envLightColor.g + 0.114*envLightColor.b) : 1;
+
+    compEmissive(i, viewDirection, normalDirection, Set_UV0, cameraParam);
+
     //Final Composition
     finalColor =  saturate(finalColor) + (envLightColor*envLightIntensity*_GI_Intensity*smoothstep(1, 0, envLightIntensity / 2)) + emissive;
 
